@@ -1,0 +1,571 @@
+
+
+!pip install tensorflow
+!pip install nltk
+
+import json
+import pandas as pd
+
+# Load the training dataset
+train_df = pd.read_json('train_with-reference.jsonl', lines=True)
+
+# Load the testing dataset
+test_df = pd.read_json('test_without-reference.jsonl', lines=True)
+
+pip install jsonlines
+
+pip install transformers
+import jsonlines
+
+with jsonlines.open("train_with-reference.jsonl") as reader:
+    train_data = [obj for obj in reader]
+    
+print(train_data[1]['id'])
+
+import jsonlines
+
+with jsonlines.open('train_with-reference.jsonl') as reader:
+    for obj in reader:
+        print(obj)
+
+nltk.download('punkt')
+ nltk.download('wordnet')
+import jsonlines
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+
+lemmatizer = WordNetLemmatizer()
+
+# Step 1: Read and preprocess the training data
+train_data = []
+with jsonlines.open('train_with-reference.jsonl') as reader:
+    for obj in reader:
+        # Preprocess obj here as needed
+        utt_texts = [word_tokenize(utt['text']) for utt in obj['utterances']]
+        utt_texts = [[lemmatizer.lemmatize(w.lower()) for w in utt] for utt in utt_texts]
+        teacher_resp_text = word_tokenize(obj['response']['text'])
+        teacher_resp_text = [lemmatizer.lemmatize(w.lower()) for w in teacher_resp_text]
+        train_data.append((utt_texts, teacher_resp_text))
+
+# Print the preprocessed data
+for example in train_data:
+    input_utterances, teacher_resp = example
+    print('Input Utterances:')
+    for utt in input_utterances:
+        print(' '.join(utt))
+    print('Teacher Response:', ' '.join(teacher_resp))
+    print('-----------------------')
+
+student_utterances = []
+teacher_responses = []
+
+with jsonlines.open('train_with-reference.jsonl') as reader:
+    for obj in reader:
+        # Extract the student utterances and teacher response from the conversation object
+        utt_texts = [utt['text'] for utt in obj['utterances']]
+        teacher_resp_text = obj['response']['text']
+        
+        # Append them to their respective lists
+        student_utterances.extend(utt_texts)
+        teacher_responses.append(teacher_resp_text)
+
+teacher_responses = []
+student_utterances = []
+
+with jsonlines.open('train_with-reference.jsonl') as reader:
+    for obj in reader:
+        # Extract the student utterances and teacher response from the conversation object
+        utt_texts = [utt['text'] for utt in obj['utterances']]
+        teacher_resp_text = obj['response']['text']
+        
+        # Append them to their respective lists
+        student_utterances.extend(utt_texts)
+        teacher_responses.append(teacher_resp_text)
+
+print('Teacher Responses:')
+print(teacher_responses)
+print('\nStudent Utterances:')
+print(student_utterances)
+
+test_data = []
+with jsonlines.open('test_without-reference.jsonl') as reader:
+    for obj in reader:
+        # Extract the student utterances and blank spaces from the conversation object
+        utt_texts = [utt['text'] for utt in obj['utterances']]
+        blank_indices = [i for i, utt in enumerate(obj['utterances']) if utt['speaker'] == 'TEACHER' and utt['text'] == '']
+        
+        # Append the data to the test_data list
+        test_data.append({'utterances': utt_texts, 'blank_indices': blank_indices})
+
+# Load the trained GPT-2 model
+model = GPT2LMHeadModel.from_pretrained('gpt2')
+
+# Set the model to evaluation mode
+model.eval()
+
+# Generate teacher responses for each blank space in the test data
+generated_responses = []
+for convo in test_data:
+    utt_texts = convo['utterances']
+    blank_indices = convo['blank_indices']
+    for i in blank_indices:
+        # Concatenate the student utterances up to the blank space
+        prompt = ' '.join(utt_texts[:i+1])
+        
+        # Generate the teacher response for the blank space
+        generated_response = model.generate(
+            input_ids=model.tokenizer.encode(prompt),
+            max_length=50,
+            do_sample=True,
+            top_p=0.9,
+            top_k=0,
+            temperature=0.7,
+            num_return_sequences=1,
+        )[0]
+        
+        # Decode the generated response and append it to the list of generated responses
+        generated_response = model.tokenizer.decode(generated_response, skip_special_tokens=True)
+        generated_responses.append(generated_response)
+
+import jsonlines
+
+# Load the testing data
+with jsonlines.open('test_without-reference.jsonl') as reader:
+    test_data = [obj for obj in reader]
+
+# Generate responses for blanks in the testing data
+generated_responses = []
+for obj in test_data:
+    for utt in obj['utterances']:
+        if utt['speaker'] == 'TEACHER' and utt['text'].strip() == '':
+            generated_resp = generate_response(utt['context'], tokenizer, model)
+            generated_responses.append(generated_resp)
+            utt['text'] = generated_resp
+
+# Save the updated testing data with generated responses
+with jsonlines.open('test_with-generated-response.jsonl', mode='w') as writer:
+    for obj in test_data:
+        writer.write(obj)
+
+# Print the generated responses
+print('Generated Responses:')
+for resp in generated_responses:
+    print(resp)
+
+import jsonlines
+from transformers import TFGPT2LMHeadModel, GPT2Tokenizer
+
+# Load the trained model and tokenizer
+model = TFGPT2LMHeadModel.from_pretrained('gpt2')
+tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+
+# Load the testing dataset
+with jsonlines.open('test_without-reference.jsonl') as reader:
+    test_data = [obj for obj in reader]
+
+# Generate responses for the blank spaces in the testing dataset
+for obj in test_data:
+    for utt in obj['utterances']:
+        if utt['speaker'] == 'TEACHER' and utt['text'] == '':
+            # Get the index of the blank in the teacher responses list
+            blank_idx = obj['utterances'].index(utt)
+            
+            # Generate response for the blank using the previous student message
+            student_msg = obj['utterances'][blank_idx-1]['text']
+            input_ids = tokenizer.encode(student_msg, return_tensors='tf')
+            gen_tokens = model.generate(input_ids, max_length=20, do_sample=True)
+            gen_text = tokenizer.decode(gen_tokens[0], skip_special_tokens=True)
+            
+            # Replace the blank with the generated response
+            obj['utterances'][blank_idx]['text'] = gen_text
+
+# Save the updated testing dataset in a new JSONL file
+with jsonlines.open('test_with-generated-responses.jsonl', mode='w') as writer:
+    writer.write_all(test_data)
+
+# Print the updated testing dataset
+with jsonlines.open('test_with-generated-responses.jsonl') as reader:
+    for obj in reader:
+        print(obj)
+
+import jsonlines
+
+teacher_responses = []
+student_utterances = []
+
+with jsonlines.open('train_with-reference.jsonl') as reader:
+    for obj in reader:
+        # Extract the student utterances and teacher response from the conversation object
+        utt_texts = [utt['text'] for utt in obj['utterances']]
+        teacher_resp_text = obj['response']['text']
+        
+        # Append them to their respective lists
+        student_utterances.extend(utt_texts)
+        teacher_responses.append(teacher_resp_text)
+
+import json
+import pandas as pd
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+json_list = [json.loads(line) for line in lines]
+df = pd.DataFrame(json_list)
+df.columns
+df.head(10)
+pip install transformers
+import json
+import pandas as pd
+
+# Load training data
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+train_data = [json.loads(line) for line in lines]
+train_df = pd.DataFrame(train_data)
+
+# Define function to generate teacher response with blanks
+def generate_teacher_response(utterances):
+    teacher_utterances = [u for u in utterances if u['speaker'] == 'teacher']
+    if len(teacher_utterances) == 0:
+        # If there are no teacher utterances, return None
+        return None
+    else:
+        # Select the last teacher utterance
+        teacher_utterance = teacher_utterances[-1]['text']
+        # Replace some words in the teacher utterance with blanks
+        blanks = ['____' if w.isalpha() and len(w) > 2 else w for w in teacher_utterance.split()]
+        return ' '.join(blanks)
+
+# Load test data
+with open('test_without-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+test_data = [json.loads(line) for line in lines]
+test_df = pd.DataFrame(test_data)
+
+# Generate teacher responses for test data
+test_df['teacher_response'] = test_df['utterances'].apply(generate_teacher_response)
+
+# Save test data with teacher responses to file
+with open('test_with-teacher-response.jsonl', 'w') as f:
+    for line in test_df.to_json(orient='records', lines=True):
+        f.write(line + '\n')
+
+import json
+import pandas as pd
+
+# Load training data
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+train_data = [json.loads(line) for line in lines]
+train_df = pd.DataFrame(train_data)
+
+# Define function to generate teacher response with blanks
+def generate_teacher_response(utterances):
+    teacher_utterances = [u for u in utterances if u['speaker'] == 'teacher']
+    if len(teacher_utterances) == 0:
+        # If there are no teacher utterances, return None
+        return None
+    else:
+        # Select the last teacher utterance
+        teacher_utterance = teacher_utterances[-1]['text']
+        # Replace some words in the teacher utterance with blanks
+        blanks = ['____' if w.isalpha() and len(w) > 2 else w for w in teacher_utterance.split()]
+        return ' '.join(blanks)
+
+# Load test data
+with open('test_without-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+test_data = [json.loads(line) for line in lines]
+test_df = pd.DataFrame(test_data)
+
+# Generate teacher responses for test data
+test_df['teacher_response'] = test_df['utterances'].apply(generate_teacher_response)
+
+# Save test data with teacher responses to file
+with open('test_with-teacher-response.jsonl', 'w') as f:
+    for line in test_df.to_json(orient='records', lines=True):
+        f.write(line + '\n')
+
+# Print the first 10 rows of the test data with teacher responses
+print(test_df.head(10))
+
+import json
+import pandas as pd
+
+# Load training data and separate teacher and student utterances
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+train_data = []
+for line in lines:
+    data = json.loads(line)
+    teacher_utterances = []
+    student_utterances = []
+    for utterance in data['utterances']:
+        if utterance['speaker'] == 'teacher':
+            teacher_utterances.append(utterance['text'])
+        elif utterance['speaker'] == 'student':
+            student_utterances.append(utterance['text'])
+    train_data.append({'id': data['id'], 'teacher_utterances': teacher_utterances, 'student_utterances': student_utterances})
+train_df = pd.DataFrame(train_data)
+
+# Define function to generate teacher response with blanks
+def generate_teacher_response(teacher_utterances):
+    if len(teacher_utterances) == 0:
+        # If there are no teacher utterances, return None
+        return None
+    else:
+        # Select the last teacher utterance
+        teacher_utterance = teacher_utterances[-1]
+        # Replace some words in the teacher utterance with blanks
+        blanks = ['____' if w.isalpha() and len(w) > 2 else w for w in teacher_utterance.split()]
+        return ' '.join(blanks)
+
+# Load test data and generate teacher responses for test data
+with open('test_without-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+test_data = []
+for line in lines:
+    data = json.loads(line)
+    test_data.append({'id': data['id'], 'utterances': data['utterances'], 'teacher_response': generate_teacher_response([u['text'] for u in data['utterances'] if u['speaker'] == 'teacher'])})
+test_df = pd.DataFrame(test_data)
+
+# Save test data with teacher responses to file
+with open('test_with-teacher-response.jsonl', 'w') as f:
+    for line in test_df.to_json(orient='records', lines=True):
+        f.write(line + '\n')
+
+import json
+import pandas as pd
+
+# Load training data and separate teacher and student utterances
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+train_data = []
+for line in lines:
+    data = json.loads(line)
+    teacher_utterances = []
+    student_utterances = []
+    for utterance in data['utterances']:
+        if utterance['speaker'] == 'teacher':
+            teacher_utterances.append(utterance['text'])
+        elif utterance['speaker'] == 'student':
+            student_utterances.append(utterance['text'])
+    train_data.append({'id': data['id'], 'teacher_utterances': teacher_utterances, 'student_utterances': student_utterances})
+train_df = pd.DataFrame(train_data)
+
+# Define function to generate teacher response with blanks
+def generate_teacher_response(teacher_utterances):
+    if len(teacher_utterances) == 0:
+        # If there are no teacher utterances, return None
+        return None
+    else:
+        # Select the last teacher utterance
+        teacher_utterance = teacher_utterances[-1]
+        # Replace some words in the teacher utterance with blanks
+        blanks = ['____' if w.isalpha() and len(w) > 2 else w for w in teacher_utterance.split()]
+        return ' '.join(blanks)
+
+# Load test data and generate teacher responses for test data
+with open('test_without-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+test_data = []
+for line in lines:
+    data = json.loads(line)
+    test_data.append({'id': data['id'], 'utterances': data['utterances'], 'teacher_response': generate_teacher_response([u['text'] for u in data['utterances'] if u['speaker'] == 'teacher'])})
+test_df = pd.DataFrame(test_data)
+
+# Save test data with teacher responses to file
+with open('test_with-teacher-resp.jsonl', 'w') as f:
+    f.write(test_df.to_json(orient='records'))
+
+import json
+import pandas as pd
+
+# Load training data and separate teacher and student utterances
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+train_data = []
+for line in lines:
+    data = json.loads(line)
+    teacher_utterances = []
+    student_utterances = []
+    for utterance in data['utterances']:
+        if utterance['speaker'] == 'teacher':
+            teacher_utterances.append(utterance['text'])
+        elif utterance['speaker'] == 'student':
+            student_utterances.append(utterance['text'])
+    train_data.append({'id': data['id'], 'teacher_utterances': teacher_utterances, 'student_utterances': student_utterances})
+train_df = pd.DataFrame(train_data)
+
+# Define function to generate teacher response with blanks
+def generate_teacher_response(teacher_utterances):
+    if len(teacher_utterances) == 0:
+        # If there are no teacher utterances, return None
+        return None
+    else:
+        # Select the last teacher utterance and split it into words
+        teacher_utterance = teacher_utterances[-1].split()
+        # Replace the last word with a blank
+        teacher_utterance[-1] = '____'
+        return ' '.join(teacher_utterance)
+
+# Load test data and generate teacher responses for test data
+with open('test_without-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+test_data = []
+for line in lines:
+    data = json.loads(line)
+    test_data.append({'id': data['id'], 'utterances': data['utterances'], 'teacher_response': generate_teacher_response([u['text'] for u in data['utterances'] if u['speaker'] == 'teacher'])})
+test_df = pd.DataFrame(test_data)
+
+# Save test data with teacher responses to file
+with open('test_with-teacher-respon.jsonl', 'w') as f:
+    for line in test_df.to_json(orient='records', lines=True):
+        f.write(line + '\n')
+
+import json
+import pandas as pd
+
+# Load training data and separate teacher and student utterances
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+train_data = []
+for line in lines:
+    data = json.loads(line)
+    teacher_utterances = []
+    student_utterances = []
+    for utterance in data['utterances']:
+        if utterance['speaker'] == 'teacher':
+            teacher_utterances.append(utterance['text'])
+        elif utterance['speaker'] == 'student':
+            student_utterances.append(utterance['text'])
+    train_data.append({'id': data['id'], 'teacher_utterances': teacher_utterances, 'student_utterances': student_utterances})
+train_df = pd.DataFrame(train_data)
+
+# Define function to generate teacher response with blanks
+def generate_teacher_response(teacher_utterances):
+    if len(teacher_utterances) == 0:
+        # If there are no teacher utterances, return None
+        return None
+    else:
+        # Select the last teacher utterance
+        teacher_utterance = teacher_utterances[-1]
+        # Replace some words in the teacher utterance with blanks
+        blanks = ['____' if w.isalpha() and len(w) > 2 else w for w in teacher_utterance.split()]
+        return ' '.join(blanks)
+
+# Load test data and generate teacher responses for test data
+with open('test_without-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+test_data = []
+for line in lines:
+    data = json.loads(line)
+    teacher_response = generate_teacher_response([u['text'] for u in data['utterances'] if u['speaker'] == 'teacher'])
+    test_data.append({'id': data['id'], 'utterances': data['utterances'], 'teacher_response': teacher_response})
+test_df = pd.DataFrame(test_data)
+
+# Save test data with teacher responses to file
+with open('test_with-teacher-respons.jsonl', 'w') as f:
+    for _, row in test_df.iterrows():
+        data = {'id': row['id'], 'teacher_response': row['teacher_response']}
+        utterances = [{'text': u['text'], 'speaker': u['speaker']} for u in row['utterances']]
+        data['utterances'] = utterances
+        f.write(json.dumps(data) + '\n')
+
+import json
+import pandas as pd
+
+# Load training data and separate teacher and student utterances
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+train_data = []
+for line in lines:
+    data = json.loads(line)
+    teacher_utterances = []
+    student_utterances = []
+    for utterance in data['utterances']:
+        if utterance['speaker'] == 'teacher':
+            teacher_utterances.append(utterance['text'])
+        elif utterance['speaker'] == 'student':
+            student_utterances.append(utterance['text'])
+    train_data.append({'id': data['id'], 'teacher_utterances': teacher_utterances, 'student_utterances': student_utterances})
+train_df = pd.DataFrame(train_data)
+
+# Define function to generate teacher response with blanks
+def generate_teacher_response(teacher_utterances):
+    if len(teacher_utterances) == 0:
+        # If there are no teacher utterances, return None
+        return None
+    else:
+        # Select the last teacher utterance
+        teacher_utterance = teacher_utterances[-1]
+        # Replace some words in the teacher utterance with blanks
+        blanks = ['____' if w.isalpha() and len(w) > 2 else w for w in teacher_utterance.split()]
+        return ' '.join(blanks)
+
+# Load test data and generate teacher responses for test data
+with open('test_without-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+test_data = []
+for line in lines:
+    data = json.loads(line)
+    teacher_utterances = [u['text'] for u in data['utterances'] if u['speaker'] == 'teacher']
+    test_dialogue = ''
+    for i, utterance in enumerate(data['utterances']):
+        if i > 0:
+            # Add newline character before each student utterance except the first one
+            test_dialogue += '\n'
+        test_dialogue += f"{utterance['speaker'].capitalize()}: {utterance['text']}"
+    test_data.append({'id': data['id'], 'dialogue_context': test_dialogue, 'reference_response': generate_teacher_response(teacher_utterances)})
+test_df = pd.DataFrame(test_data)
+
+# Print dialogue context and reference response for each test instance
+for i, row in test_df.iterrows():
+    print(f"[ DIALOGUE CONTEXT ]\n{row['dialogue_context']}\n\n[ REFERENCE RESPONSE ]\nTeacher: {row['reference_response']}") 
+
+import json
+import pandas as pd
+
+# Load training data and separate teacher and student utterances
+with open('train_with-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+train_data = []
+for line in lines:
+    data = json.loads(line)
+    teacher_utterances = []
+    student_utterances = []
+    for utterance in data['utterances']:
+        if utterance['speaker'] == 'teacher':
+            teacher_utterances.append(utterance['text'])
+        elif utterance['speaker'] == 'student':
+            student_utterances.append(utterance['text'])
+    train_data.append({'id': data['id'], 'teacher_utterances': teacher_utterances, 'student_utterances': student_utterances})
+train_df = pd.DataFrame(train_data)
+
+# Define function to generate teacher response with blanks
+def generate_teacher_response(teacher_utterances):
+    if len(teacher_utterances) == 0:
+        # If there are no teacher utterances, return None
+        return None
+    else:
+        # Select the last teacher utterance
+        teacher_utterance = teacher_utterances[-1]
+        # Replace some words in the teacher utterance with blanks
+        blanks = ['____' if w.isalpha() and len(w) > 2 else w for w in teacher_utterance.split()]
+        return ' '.join(blanks)
+
+# Load test data and generate teacher responses for test data
+with open('test_without-reference.jsonl', 'r') as f:
+    lines = f.readlines()
+test_data = []
+for line in lines:
+    data = json.loads(line)
+    test_id = data['id']
+    utterances = data['utterances']
+    teacher_response = generate_teacher_response([u['text'] for u in utterances if u['speaker'] == 'teacher'])
+    test_data.append({'id': test_id, 'context': utterances, 'reference_response': teacher_response})
+test_df = pd.DataFrame(test_data)
+
+# Save test data with teacher responses to file
+with open('test_with-teacherResponses.jsonl', 'w') as f:
+    for line in test_df.to_json(orient='records', lines=True).split('\n'):
+        if line.strip():
+            f.write(json.dumps(json.loads(line)) + '\n')
